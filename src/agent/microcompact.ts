@@ -22,6 +22,15 @@ export const COUNT_KEEP_RECENT = 4;
 /** Fire when total compactable ToolMessage content exceeds this many estimated tokens. */
 export const TOKEN_TRIGGER_THRESHOLD = 80_000;
 
+/**
+ * Below this size, a tool result is not worth clearing on the count trigger.
+ *
+ * Clearing a 2KB read of a pinned reference saves a few hundred tokens and
+ * costs the model an entire round to fetch it again. The token trigger ignores
+ * this floor: when the total really is large, everything old goes.
+ */
+export const MIN_CLEAR_CHARS = 2_000;
+
 /** Tool names whose results can be safely cleared (read-only tools). */
 const COMPACTABLE_TOOLS = new Set([
   'get_financials', 'get_market_data', 'read_filings', 'stock_screener',
@@ -81,9 +90,17 @@ export function microcompactMessages(messages: BaseMessage[]): MicrocompactResul
     return { messages, cleared: 0, estimatedTokensSaved: 0, trigger: null };
   }
 
-  // Keep last KEEP_RECENT, clear the rest
+  // Keep last KEEP_RECENT, clear the rest. On the count trigger, spare results
+  // too small to be worth a re-read; on the token trigger, size is the problem
+  // so nothing is spared.
   const keepSet = new Set(compactableIndices.slice(-COUNT_KEEP_RECENT));
-  const clearIndices = compactableIndices.filter(i => !keepSet.has(i));
+  const clearIndices = compactableIndices.filter(i => {
+    if (keepSet.has(i)) return false;
+    if (tokenTriggered) return true;
+    const content = (messages[i] as ToolMessage).content;
+    const text = typeof content === 'string' ? content : JSON.stringify(content);
+    return text.length >= MIN_CLEAR_CHARS;
+  });
 
   if (clearIndices.length === 0) {
     return { messages, cleared: 0, estimatedTokensSaved: 0, trigger: null };
