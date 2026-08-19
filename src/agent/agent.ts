@@ -148,6 +148,7 @@ export class Agent {
     let overflowRetries = 0;
     while (ctx.iteration < this.maxIterations) {
       ctx.iteration++;
+      ctx.scratchpad.setIteration(ctx.iteration);
 
       // Microcompact: per-turn lightweight trimming before LLM call
       const mcResult = microcompactMessages(messages);

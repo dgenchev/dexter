@@ -21,6 +21,8 @@ export interface ScratchpadEntry {
   toolName?: string;
   args?: Record<string, unknown>;
   result?: unknown; // Stored as parsed object when possible, string otherwise
+  /** Agent-loop round that produced this entry (1-based). Absent for init. */
+  iteration?: number;
 }
 
 /**
@@ -67,6 +69,12 @@ export class Scratchpad {
   private readonly scratchpadDir = dexterPath('scratchpad');
   private readonly filepath: string;
   private readonly limitConfig: ToolLimitConfig;
+
+  // Current agent-loop round, stamped onto every appended entry so the JSONL
+  // records how many rounds work actually took — the cap is on rounds, not
+  // tool calls, and without this stamp round counts can only be guessed from
+  // timestamp clustering.
+  private currentIteration = 0;
 
   // In-memory tracking for tool limits (also persisted in JSONL)
   private toolCallCounts: Map<string, number> = new Map();
@@ -450,7 +458,20 @@ export class Scratchpad {
    * Append-only write
    */
   private append(entry: ScratchpadEntry): void {
+    if (this.currentIteration > 0 && entry.iteration === undefined) {
+      entry.iteration = this.currentIteration;
+    }
     appendFileSync(this.filepath, JSON.stringify(entry) + '\n');
+  }
+
+  /** Set the agent-loop round stamped onto subsequent entries. */
+  setIteration(iteration: number): void {
+    this.currentIteration = iteration;
+  }
+
+  /** Path of the JSONL file backing this scratchpad. */
+  getFilepath(): string {
+    return this.filepath;
   }
 
   /**
