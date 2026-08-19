@@ -106,6 +106,7 @@ Given a user's natural language query about market data, call the appropriate to
    - "2024" → start_date 2024-01-01, end_date 2024-12-31
 
 3. **Tool Selection**:
+   - If the query already names a ticker (including dotted listings like ADYEN.AS), never call get_available_stock_tickers. Call get_stock_price. If that 400s, return the error; do not list all US tickers.
    - For a current stock quote/snapshot (price, market cap, volume) → get_stock_price
    - For historical stock prices over a date range → get_stock_prices
    - For "what stocks are available" or ticker lookup → get_stock_tickers

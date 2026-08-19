@@ -8,6 +8,11 @@ export interface ApiResponse {
   url: string;
 }
 
+export function formatFdHttpError(status: number, statusText: string, body: string): string {
+  const snippet = body.replace(/\s+/g, ' ').slice(0, 300);
+  return `[Financial Datasets API] request failed: ${status} ${statusText}${snippet ? ` — ${snippet}` : ''}`;
+}
+
 /**
  * Remove redundant fields from API payloads before they are returned to the LLM.
  * This reduces token usage while preserving the financial metrics needed for analysis.
@@ -99,9 +104,10 @@ async function executeRequest(
   }
 
   if (!response.ok) {
+    const body = await response.text();
     const detail = `${response.status} ${response.statusText}`;
     logger.error(`[Financial Datasets API] error: ${label} — ${detail}`);
-    throw new Error(`[Financial Datasets API] request failed: ${detail}`);
+    throw new Error(formatFdHttpError(response.status, response.statusText, body));
   }
 
   const data = await response.json().catch(() => {
