@@ -17,8 +17,9 @@ import type { GroupContext } from '../agent/prompts.js';
  * book (config/portfolio.json), doctrine and scripts stay mechanically
  * unwritable from a chat channel, not just doctrinally. Everything else —
  * unmatched bash, unparseable commands, paths outside the morgue — is denied.
- * Deny-by-default: a denied call ends the turn exactly as an absent callback
- * would have.
+ * Deny-by-default — but denial is survivable: gateway agents run with
+ * toolDenialBehavior 'continue', so the model receives the denial as a tool
+ * result and keeps working instead of dying with an empty answer.
  *
  * `rules` is injectable for tests; production reads `.dexter/settings.json`
  * on every call so rule edits apply without a gateway restart.
@@ -133,6 +134,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
       channel: req.channel,
       groupContext: req.groupContext,
       memoryEnabled: !isolated,
+      toolDenialBehavior: 'continue',
       messageQueue: session?.queue,
       requestToolApproval: createGatewayToolApproval(),
     });
@@ -158,6 +160,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
         channel: req.channel,
         groupContext: req.groupContext,
         memoryEnabled: !isolated,
+        toolDenialBehavior: 'continue',
         messageQueue: session.queue,
         requestToolApproval: createGatewayToolApproval(),
       });
