@@ -1,6 +1,6 @@
 import { appendFileSync } from 'node:fs';
 import { dexterPath } from '../../../utils/paths.js';
-import { getSetting } from '../../../utils/config.js';
+import { getSetting, resolveMaxIterations } from '../../../utils/config.js';
 import type { GatewayConfig } from '../../config.js';
 import { enqueueForSession, isSessionRunning, runAgentForMessage } from '../../agent-runner.js';
 import { resolveRoute } from '../../routing/resolve-route.js';
@@ -73,6 +73,10 @@ export async function handleTelegramInbound(
       model,
       modelProvider,
       channel: 'telegram',
+      // Same cap resolution as the CLI: settings maxIterations (20 here) over
+      // the upstream default. A full story protocol measures ~14 rounds; the
+      // agent-runner fallback of 10 caps it mid-review.
+      maxIterations: resolveMaxIterations(10),
     });
     const durationMs = Date.now() - startedAt;
 
