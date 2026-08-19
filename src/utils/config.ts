@@ -34,6 +34,10 @@ interface Config {
     embeddingModel?: string;
     maxSessionContextTokens?: number;
   };
+  /** Agent-loop round cap for interactive CLI queries. */
+  maxIterations?: number;
+  /** Agent-loop round cap for cron jobs, which run unattended. */
+  cronMaxIterations?: number;
   /** Bash permission rules (allow/ask/deny), persisted from the approval prompt. */
   permissions?: {
     allow?: string[];
@@ -63,6 +67,28 @@ export function loadConfig(): Config {
   } catch {
     return {};
   }
+}
+
+/**
+ * Agent-loop round cap.
+ *
+ * Precedence: DEXTER_MAX_ITERATIONS env, then settings.json, then the caller's
+ * default — so an unconfigured install behaves exactly as before. A round is an
+ * LLM turn, not a tool call: a turn issuing five tools costs one round, which is
+ * why the same protocol can finish in 8 rounds or hit 10 with identical work.
+ */
+export function resolveMaxIterations(
+  fallback: number,
+  key: 'maxIterations' | 'cronMaxIterations' = 'maxIterations'
+): number {
+  const fromEnv = Number.parseInt(process.env.DEXTER_MAX_ITERATIONS ?? '', 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+
+  const configured = loadConfig()[key];
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return fallback;
 }
 
 export function saveConfig(config: Config): boolean {
