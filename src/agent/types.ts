@@ -68,6 +68,14 @@ export interface AgentConfig {
   sessionApprovedTools?: Set<string>;
   /** Enable/disable persistent memory integration for this run */
   memoryEnabled?: boolean;
+  /**
+   * What a denied tool call does to the run. 'halt' (default): end the run
+   * with an empty answer — right for interactive channels, where a denial is
+   * the user saying stop. 'continue': the model receives the denial as a tool
+   * result and keeps working — right for gateway channels, where denial is a
+   * non-interactive allowlist decision, not a human intervention.
+   */
+  toolDenialBehavior?: 'halt' | 'continue';
   /** Message queue for mid-run injection of new user messages. */
   messageQueue?: MessageQueue;
   /**

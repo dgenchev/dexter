@@ -99,7 +99,12 @@ export async function handleTelegramInbound(
     typingTimer = undefined;
 
     if (answer.trim()) {
-      await inbound.reply(answer.trim());
+      // Constrained runs are visible, not trusted: if any tool call was
+      // denied, the reader sees exactly what the run had to work around.
+      const footer = deniedCalls.length
+        ? `\n\n⚠️ ${deniedCalls.length} tool call(s) denied this run: ${deniedCalls.join('; ')}`
+        : '';
+      await inbound.reply(answer.trim() + footer);
       console.log(`Sent Telegram reply (${answer.length} chars, ${durationMs}ms)`);
       debugLog(`[telegram] reply sent length=${answer.length}`);
     } else {

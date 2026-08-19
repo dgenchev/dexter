@@ -59,6 +59,7 @@ export class Agent {
   private readonly systemPrompt: string;
   private readonly signal?: AbortSignal;
   private readonly memoryEnabled: boolean;
+  private readonly toolDenialBehavior: 'halt' | 'continue';
   private readonly messageQueue?: MessageQueue;
   private compactionFailures: number = 0;
 
@@ -85,6 +86,7 @@ export class Agent {
     this.signal = config.signal;
     this.memoryEnabled = config.memoryEnabled ?? true;
     this.messageQueue = config.messageQueue;
+    this.toolDenialBehavior = config.toolDenialBehavior ?? 'halt';
   }
 
   static async create(config: AgentConfig = {}): Promise<Agent> {
@@ -261,7 +263,7 @@ export class Agent {
 
       messages.push(...toolMessages);
 
-      if (denied) {
+      if (denied && this.toolDenialBehavior !== 'continue') {
         const totalTime = Date.now() - ctx.startTime;
         yield {
           type: 'done',
@@ -426,7 +428,12 @@ export class Agent {
         }));
       } else if (event.type === 'tool_denied' && event.toolCallId) {
         toolMessageMap.set(event.toolCallId, new ToolMessage({
-          content: 'Tool execution denied by user.',
+          content: this.toolDenialBehavior === 'continue'
+            ? 'Denied: this call is not allowlisted on this channel. Use the ' +
+              'allowlisted scripts (python3 scripts/...) or the other available ' +
+              'tools. If the fact cannot be obtained with them, say so and stop ' +
+              'that thread — never invent the number.'
+            : 'Tool execution denied by user.',
           tool_call_id: event.toolCallId,
           name: event.tool,
         }));
