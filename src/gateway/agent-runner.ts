@@ -2,8 +2,38 @@ import { Agent } from '../agent/agent.js';
 import { InMemoryChatHistory } from '../utils/in-memory-chat-history.js';
 import { createMessageQueue, type MessageQueue, type QueuePriority } from '../utils/message-queue.js';
 import { HEARTBEAT_OK_TOKEN } from './heartbeat/suppression.js';
-import type { AgentEvent } from '../agent/types.js';
+import { evaluateBash } from '../permissions/engine.js';
+import type { RuleSet } from '../permissions/rules.js';
+import type { AgentEvent, ApprovalDecision } from '../agent/types.js';
 import type { GroupContext } from '../agent/prompts.js';
+
+/**
+ * Non-interactive tool approval for gateway channels. There is no user at a
+ * keyboard, so this never prompts and never hangs: a bash command is approved
+ * only when the settings `permissions.allow` rules independently allow every
+ * segment of it (evaluateBash → 'allow', which also enforces the built-in
+ * security floor and any deny rules); everything else — unmatched bash,
+ * unparseable commands, non-bash approval-gated tools like write_file — is
+ * denied. Deny-by-default: a denied call ends the turn exactly as an absent
+ * callback would have.
+ *
+ * `rules` is injectable for tests; production reads `.dexter/settings.json`
+ * on every call so rule edits apply without a gateway restart.
+ */
+export function createGatewayToolApproval(rules?: RuleSet) {
+  return async (request: {
+    tool: string;
+    args: Record<string, unknown>;
+    command?: string;
+  }): Promise<ApprovalDecision> => {
+    if (request.tool !== 'bash') return 'deny';
+    const command =
+      request.command ?? (typeof request.args.command === 'string' ? request.args.command : '');
+    if (!command.trim()) return 'deny';
+    const decision = rules ? evaluateBash(command, rules) : evaluateBash(command);
+    return decision.mode === 'allow' ? 'allow-once' : 'deny';
+  };
+}
 
 type SessionState = {
   history: InMemoryChatHistory;
@@ -91,6 +121,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
       groupContext: req.groupContext,
       memoryEnabled: !isolated,
       messageQueue: session?.queue,
+      requestToolApproval: createGatewayToolApproval(),
     });
 
     for await (const event of agent.run(req.query, session?.history)) {
@@ -115,6 +146,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
         groupContext: req.groupContext,
         memoryEnabled: !isolated,
         messageQueue: session.queue,
+        requestToolApproval: createGatewayToolApproval(),
       });
 
       for await (const event of followUp.run(mergedText, session.history)) {
