@@ -9,6 +9,7 @@ import {
   resolveSubagentTools,
 } from './types.js';
 import { encodeSubagentProgress } from './progress.js';
+import { getSetting } from '../../utils/config.js';
 
 // Rough categories so the activity line can roll up trailing operations the way
 // a human would summarize them ("Searched 3×, read 2 sources").
@@ -69,12 +70,48 @@ const SpawnSubagentInputSchema = z.object({
     .string()
     .optional()
     .describe('Optional background the subagent needs but cannot see from the conversation.'),
+  model: z
+    .string()
+    .optional()
+    .describe(
+      'Optional model override, openrouter:-prefixed. For subagent_type "critic" the operator\'s ' +
+      'criticModel setting wins over this value.',
+    ),
 });
 
 /**
  * Build the spawn_subagent tool, bound to the given model. Mirrors the other
  * model-bound tool factories in the registry.
  */
+/**
+ * Which model a spawn runs on. Configured beats requested beats parent:
+ * the critic's model is an operator setting (criticModel in settings.json),
+ * not something the parent picks for its own adversary. All values must be
+ * provider-prefixed (e.g. "openrouter:openai/gpt-5.6-sol") — a bare
+ * "openai/..." routes to a direct provider whose key may be absent, which is
+ * what actually killed both 2026-08-17 spawn attempts.
+ */
+export function resolveSpawnModel(parentModel: string, requested?: string, configured?: string): string {
+  const pick = (v?: string) => (v && v.trim() ? v.trim() : undefined);
+  return pick(configured) ?? pick(requested) ?? parentModel;
+}
+
+/**
+ * The tool result names the model that actually ran, so an orchestrator
+ * recording critic_model copies it verbatim instead of guessing — the same
+ * fix author_model needed (a run once reported gpt-5.2-codex while deepseek
+ * was configured).
+ */
+export function formatSubagentResult(
+  answer: string,
+  typeKey: string,
+  resolvedModel: string,
+  usage?: TokenUsage,
+): string {
+  const stats = usage ? ` · ${usage.totalTokens} tokens` : '';
+  return `${answer}\n\n_[subagent ${typeKey} · model: ${resolvedModel}${stats}]_`;
+}
+
 export function createSpawnSubagent(model: string): DynamicStructuredTool {
   return new DynamicStructuredTool({
     name: 'spawn_subagent',
@@ -92,8 +129,12 @@ export function createSpawnSubagent(model: string): DynamicStructuredTool {
       // By first invocation all modules are fully loaded.
       const { Agent } = await import('../../agent/agent.js');
 
+      const configuredCriticModel =
+        typeKey === 'critic' ? getSetting<string | undefined>('criticModel', undefined) : undefined;
+      const resolvedModel = resolveSpawnModel(model, input.model, configuredCriticModel);
+
       const subagent = await Agent.create({
-        model,
+        model: resolvedModel,
         maxIterations: typeCfg.maxIterations,
         signal,
         memoryEnabled: false,
@@ -160,11 +201,9 @@ export function createSpawnSubagent(model: string): DynamicStructuredTool {
       emit(true);
 
       if (!answer) {
-        return `Subagent (${typeKey}) finished without producing an answer.`;
+        return `Subagent (${typeKey}, model: ${resolvedModel}) finished without producing an answer.`;
       }
-      return usage
-        ? `${answer}\n\n_[subagent ${typeKey}: ${usage.totalTokens} tokens]_`
-        : answer;
+      return formatSubagentResult(answer, typeKey, resolvedModel, usage);
     },
   });
 }
