@@ -1,4 +1,5 @@
 import { createChannelManager } from './channels/manager.js';
+import { maybeCreateTelegramManager } from './channels/telegram/index.js';
 import { createWhatsAppPlugin } from './channels/whatsapp/plugin.js';
 import {
   assertOutboundAllowed,
@@ -227,6 +228,14 @@ export async function startGateway(params: { configPath?: string } = {}): Promis
   });
   await manager.startAll();
 
+  // Telegram channel: enabled only when TELEGRAM_BOT_TOKEN is present.
+  const telegramManager = maybeCreateTelegramManager({
+    loadConfig: () => loadGatewayConfig(params.configPath),
+  });
+  if (telegramManager) {
+    await telegramManager.startAll();
+  }
+
   ensureHeartbeatCronJob(params.configPath);
   const cron = startCronRunner({ configPath: params.configPath });
 
@@ -234,7 +243,20 @@ export async function startGateway(params: { configPath?: string } = {}): Promis
     stop: async () => {
       cron.stop();
       await manager.stopAll();
+      if (telegramManager) {
+        await telegramManager.stopAll();
+      }
     },
-    snapshot: () => manager.getSnapshot(),
+    snapshot: () => ({
+      ...manager.getSnapshot(),
+      ...(telegramManager
+        ? Object.fromEntries(
+            Object.entries(telegramManager.getSnapshot()).map(([id, snap]) => [
+              `telegram:${id}`,
+              snap,
+            ]),
+          )
+        : {}),
+    }),
   };
 }
