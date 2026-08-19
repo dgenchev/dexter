@@ -217,13 +217,14 @@ export function getToolRegistry(model: string): RegisteredTool[] {
   }
 
   // bash: Unix/macOS only (uses /bin/sh + POSIX process groups). Channel gating
-  // (CLI-only) is handled by CLI_ONLY_TOOLS in Agent.create.
+  // is handled in Agent.create: non-CLI channels only bind bash when a
+  // requestToolApproval callback is supplied (APPROVAL_GATED_TOOLS).
   if (process.platform !== 'win32') {
     tools.push({
       name: 'bash',
       tool: createBash(model),
       description: BASH_TOOL_DESCRIPTION,
-      compactDescription: 'Run a shell command (stdout/stderr/exit code). CLI only; every command asks for approval.',
+      compactDescription: 'Run a shell command (stdout/stderr/exit code). Every command is approval-gated (CLI prompt, or permission rules on gateway channels).',
       concurrencySafe: false,
     });
   }

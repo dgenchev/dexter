@@ -25,8 +25,21 @@ const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_OVERFLOW_RETRIES = 2;
 const OVERFLOW_KEEP_ROUNDS = 3;
 
-/** Tools that require an interactive user and are only bound on the CLI channel. */
-const CLI_ONLY_TOOLS = new Set<string>(['ask_user_question', 'bash']);
+/**
+ * Tools that require an interactive user and are only bound on the CLI channel.
+ * ask_user_question blocks on a human answering mid-turn, so no non-CLI channel
+ * can ever host it.
+ */
+const INTERACTIVE_ONLY_TOOLS = new Set<string>(['ask_user_question']);
+
+/**
+ * Tools that need an approval path, not a keyboard. bash is bound on non-CLI
+ * channels (gateway/headless) only when the caller supplies a
+ * requestToolApproval callback — e.g. the gateway's non-interactive,
+ * rules-based, deny-by-default one — and is dropped otherwise, because the
+ * executor would deny-and-end the turn on the first 'ask' decision.
+ */
+const APPROVAL_GATED_TOOLS = new Set<string>(['bash']);
 
 /**
  * The core agent class that handles the agent loop and tool execution.
@@ -80,11 +93,16 @@ export class Agent {
     let tools = config.toolAllowlist
       ? allTools.filter(t => config.toolAllowlist!.includes(t.name))
       : allTools;
-    // CLI-only tools (interactive prompts) are dropped on non-CLI channels
-    // (WhatsApp/gateway) and in headless runs, where there is no user at a keyboard.
+    // On non-CLI channels (WhatsApp/Telegram/gateway) and headless runs there is
+    // no user at a keyboard: interactive prompt tools are always dropped, and
+    // approval-gated tools (bash) are dropped only when no requestToolApproval
+    // callback is provided to decide for the absent user.
     const isCli = !config.channel || config.channel === 'cli';
     if (!isCli) {
-      tools = tools.filter(t => !CLI_ONLY_TOOLS.has(t.name));
+      tools = tools.filter(t => !INTERACTIVE_ONLY_TOOLS.has(t.name));
+      if (!config.requestToolApproval) {
+        tools = tools.filter(t => !APPROVAL_GATED_TOOLS.has(t.name));
+      }
     }
     // The concurrency map is a name→bool lookup; extra entries are harmless since
     // toolMap only holds the (possibly filtered) tools above.
