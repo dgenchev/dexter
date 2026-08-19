@@ -65,7 +65,8 @@ export async function handleTelegramInbound(
       void inbound.sendTyping();
     }, TYPING_INTERVAL_MS);
 
-    debugLog(`[telegram] running agent for session=${route.sessionKey}`);
+    const resolvedCap = resolveMaxIterations(10);
+    debugLog(`[telegram] running agent for session=${route.sessionKey} maxIterations=${resolvedCap}`);
     const startedAt = Date.now();
     const answer = await runAgentForMessage({
       sessionKey: route.sessionKey,
@@ -76,7 +77,7 @@ export async function handleTelegramInbound(
       // Same cap resolution as the CLI: settings maxIterations (20 here) over
       // the upstream default. A full story protocol measures ~14 rounds; the
       // agent-runner fallback of 10 caps it mid-review.
-      maxIterations: resolveMaxIterations(10),
+      maxIterations: resolvedCap,
     });
     const durationMs = Date.now() - startedAt;
 
@@ -88,13 +89,26 @@ export async function handleTelegramInbound(
       console.log(`Sent Telegram reply (${answer.length} chars, ${durationMs}ms)`);
       debugLog(`[telegram] reply sent length=${answer.length}`);
     } else {
+      // A user-initiated message always gets a reply — a silent failure reads
+      // as "still running" forever. Empty usually means the round cap bit or
+      // the model returned an empty completion; say so instead of guessing.
       console.log(`Agent returned empty response (${durationMs}ms)`);
-      debugLog('[telegram] empty answer, not sending');
+      debugLog('[telegram] empty answer, sending failure notice');
+      await inbound.reply(
+        `⚠️ The run finished after ${Math.round(durationMs / 1000)}s with no answer ` +
+        `(up to ${resolvedCap} rounds). Likely the round cap or an empty model reply — ` +
+        `nothing was written on faith. Try again, or check the desk logs.`,
+      );
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.log(`Telegram handler error: ${msg}`);
     debugLog(`[telegram] ERROR: ${msg}`);
+    try {
+      await inbound.reply(`⚠️ Run failed: ${msg.slice(0, 300)}`);
+    } catch {
+      debugLog('[telegram] failed to deliver the failure notice');
+    }
   } finally {
     if (typingTimer) {
       clearInterval(typingTimer);
