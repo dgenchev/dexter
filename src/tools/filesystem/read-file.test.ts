@@ -78,3 +78,45 @@ describe('read_file oversized lines', () => {
     expect(result.data.nextByteOffset).toBeLessThan(32 * 1024);
   });
 });
+
+describe('read_file byteOffset alongside line-based params', () => {
+  test('ignores a zero byteOffset so a line read still works', async () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    const path = join(TEST_DIR, 'doctrine.md');
+    writeFileSync(path, 'alpha\nbravo\ncharlie\n', 'utf-8');
+
+    // Models that fill every optional numeric field send byteOffset: 0 next to
+    // offset/limit. A zero byte offset is the start of the file, so it adds
+    // nothing to a line read and must not fail the call.
+    const raw = await readFileTool.invoke({
+      path,
+      offset: 1,
+      limit: 240,
+      byteOffset: 0,
+      byteLimit: 32768,
+    });
+    const result = JSON.parse(raw);
+    expect(result.data.content).toContain('alpha');
+    expect(result.data.content).toContain('charlie');
+  });
+
+  test('still rejects a real byte offset combined with line params, and says how to fix it', async () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    const path = join(TEST_DIR, 'doctrine.md');
+    writeFileSync(path, 'alpha\nbravo\ncharlie\n', 'utf-8');
+
+    expect(
+      readFileTool.invoke({ path, offset: 1, limit: 2, byteOffset: 6 }),
+    ).rejects.toThrow('omit byteOffset');
+  });
+
+  test('byteOffset zero on its own still reads a byte range', async () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    const path = join(TEST_DIR, 'doctrine.md');
+    writeFileSync(path, 'alpha\nbravo\ncharlie\n', 'utf-8');
+
+    const raw = await readFileTool.invoke({ path, byteOffset: 0, byteLimit: 5 });
+    const result = JSON.parse(raw);
+    expect(JSON.stringify(result)).toContain('alpha');
+  });
+});
