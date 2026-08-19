@@ -67,6 +67,10 @@ export async function handleTelegramInbound(
 
     const resolvedCap = resolveMaxIterations(10);
     debugLog(`[telegram] running agent for session=${route.sessionKey} maxIterations=${resolvedCap}`);
+    // A denied tool call ends a run with an empty answer (agent.ts). Record
+    // every denial so the failure notice can name its killer instead of
+    // guessing between the cap and an empty completion.
+    const deniedCalls: string[] = [];
     const startedAt = Date.now();
     const answer = await runAgentForMessage({
       sessionKey: route.sessionKey,
@@ -78,6 +82,16 @@ export async function handleTelegramInbound(
       // the upstream default. A full story protocol measures ~14 rounds; the
       // agent-runner fallback of 10 caps it mid-review.
       maxIterations: resolvedCap,
+      onEvent: async (ev) => {
+        if (ev.type === 'tool_denied') {
+          const what =
+            ev.tool === 'bash'
+              ? String((ev.args as Record<string, unknown> | undefined)?.command ?? '')
+              : `${ev.tool} ${JSON.stringify(ev.args ?? {}).slice(0, 80)}`;
+          deniedCalls.push(what.slice(0, 120));
+          debugLog(`[telegram] tool_denied ${ev.tool}: ${what.slice(0, 200)}`);
+        }
+      },
     });
     const durationMs = Date.now() - startedAt;
 
@@ -94,9 +108,12 @@ export async function handleTelegramInbound(
       // the model returned an empty completion; say so instead of guessing.
       console.log(`Agent returned empty response (${durationMs}ms)`);
       debugLog('[telegram] empty answer, sending failure notice');
+      const cause = deniedCalls.length
+        ? `A denied tool call ends the run: ${deniedCalls.join('; ')}`
+        : `Likely the round cap or an empty model reply`;
       await inbound.reply(
         `⚠️ The run finished after ${Math.round(durationMs / 1000)}s with no answer ` +
-        `(up to ${resolvedCap} rounds). Likely the round cap or an empty model reply — ` +
+        `(up to ${resolvedCap} rounds). ${cause} — ` +
         `nothing was written on faith. Try again, or check the desk logs.`,
       );
     }
