@@ -12,20 +12,33 @@ import type { GroupContext } from '../agent/prompts.js';
  * keyboard, so this never prompts and never hangs: a bash command is approved
  * only when the settings `permissions.allow` rules independently allow every
  * segment of it (evaluateBash → 'allow', which also enforces the built-in
- * security floor and any deny rules); everything else — unmatched bash,
- * unparseable commands, non-bash approval-gated tools like write_file — is
- * denied. Deny-by-default: a denied call ends the turn exactly as an absent
- * callback would have.
+ * security floor and any deny rules). write_file/edit_file are approved only
+ * under investigations/ — the story protocol must write its story, but the
+ * book (config/portfolio.json), doctrine and scripts stay mechanically
+ * unwritable from a chat channel, not just doctrinally. Everything else —
+ * unmatched bash, unparseable commands, paths outside the morgue — is denied.
+ * Deny-by-default: a denied call ends the turn exactly as an absent callback
+ * would have.
  *
  * `rules` is injectable for tests; production reads `.dexter/settings.json`
  * on every call so rule edits apply without a gateway restart.
  */
+const GATEWAY_WRITE_TOOLS = new Set<string>(['write_file', 'edit_file']);
+
 export function createGatewayToolApproval(rules?: RuleSet) {
   return async (request: {
     tool: string;
     args: Record<string, unknown>;
     command?: string;
   }): Promise<ApprovalDecision> => {
+    if (GATEWAY_WRITE_TOOLS.has(request.tool)) {
+      const path = typeof request.args.path === 'string' ? request.args.path : '';
+      const normalized = path.replace(/\\/g, '/');
+      if (normalized.startsWith('investigations/') && !normalized.includes('..')) {
+        return 'allow-once';
+      }
+      return 'deny';
+    }
     if (request.tool !== 'bash') return 'deny';
     const command =
       request.command ?? (typeof request.args.command === 'string' ? request.args.command : '');
