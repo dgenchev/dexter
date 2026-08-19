@@ -65,9 +65,32 @@ describe('createGatewayToolApproval — non-interactive, deny-by-default', () =>
     expect(await approve({ tool: 'bash', args: {}, command: '   ' })).toBe('deny');
   });
 
-  test('denies non-bash tools (write_file/edit_file keep the no-callback behavior)', async () => {
+  test('write tools are approved only under investigations/', async () => {
+    // The story protocol must write its story over a chat channel; the book,
+    // doctrine and scripts stay mechanically unwritable. Both KSPI runs on
+    // 2026-08-19 died silently at the story write_file before this.
     const approve = createGatewayToolApproval(DESK_RULES);
+    expect(
+      await approve({ tool: 'write_file', args: { path: 'investigations/KSPI/2026-08-19-worth.md' } }),
+    ).toBe('allow-once');
+    expect(
+      await approve({ tool: 'edit_file', args: { path: 'investigations/KSPI/2026-08-19-worth.md' } }),
+    ).toBe('allow-once');
+  });
+
+  test('write tools outside the morgue are denied', async () => {
+    const approve = createGatewayToolApproval(DESK_RULES);
+    expect(await approve({ tool: 'write_file', args: { path: 'config/portfolio.json' } })).toBe('deny');
+    expect(await approve({ tool: 'edit_file', args: { path: '.dexter/RULES.md' } })).toBe('deny');
     expect(await approve({ tool: 'write_file', args: { path: 'x.md' } })).toBe('deny');
-    expect(await approve({ tool: 'edit_file', args: { path: 'x.md' } })).toBe('deny');
+    expect(
+      await approve({ tool: 'write_file', args: { path: 'investigations/../config/portfolio.json' } }),
+    ).toBe('deny');
+    expect(await approve({ tool: 'write_file', args: {} })).toBe('deny');
+  });
+
+  test('other non-bash tools stay denied', async () => {
+    const approve = createGatewayToolApproval(DESK_RULES);
+    expect(await approve({ tool: 'some_future_tool', args: {} })).toBe('deny');
   });
 });
