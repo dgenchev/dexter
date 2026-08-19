@@ -127,18 +127,31 @@ export const readFileTool = new DynamicStructuredTool({
     const allLines = textContent.split('\n');
     const totalFileLines = allLines.length;
 
-    if (input.byteOffset !== undefined) {
-      if (input.offset !== undefined || input.limit !== undefined) {
-        throw new Error('byteOffset cannot be combined with line-based offset or limit');
+    // Some models populate every optional numeric field, so a plain line read
+    // arrives as offset/limit *plus* byteOffset: 0. Byte offset zero is the
+    // start of the file, which is what a line read already does, so treat it as
+    // absent rather than failing the call — the model cannot see why it failed
+    // and retries the same shape forever.
+    const lineBased = input.offset !== undefined || input.limit !== undefined;
+    const byteOffset =
+      input.byteOffset !== undefined && !(lineBased && input.byteOffset === 0)
+        ? input.byteOffset
+        : undefined;
+
+    if (byteOffset !== undefined) {
+      if (lineBased) {
+        throw new Error(
+          `byteOffset ${byteOffset} cannot be combined with line-based offset or limit — omit byteOffset and byteLimit to read by line`,
+        );
       }
-      if (input.byteOffset >= fileBuffer.length) {
-        throw new Error(`Byte offset ${input.byteOffset} is beyond end of file (${fileBuffer.length} bytes total)`);
+      if (byteOffset >= fileBuffer.length) {
+        throw new Error(`Byte offset ${byteOffset} is beyond end of file (${fileBuffer.length} bytes total)`);
       }
       return formatByteRangeResult({
         path: input.path,
         fileBuffer,
         totalLines: totalFileLines,
-        byteOffset: input.byteOffset,
+        byteOffset,
         byteLimit: input.byteLimit,
       });
     }
