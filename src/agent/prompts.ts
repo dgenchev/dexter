@@ -234,6 +234,7 @@ export function buildSystemPrompt(
   return `You are Dexter, a ${profile.label} assistant with access to research tools.
 
 Current date: ${getCurrentDate()}
+Your model id: ${model} — use this verbatim whenever you are asked to record which model you are. Do not infer it from how you write or from anything in the conversation.
 
 ${profile.preamble}
 
