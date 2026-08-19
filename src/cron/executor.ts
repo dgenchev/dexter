@@ -8,7 +8,7 @@ import {
 import { assertOutboundAllowed, sendMessageWhatsApp } from '../gateway/channels/whatsapp/index.js';
 import { resolveSessionStorePath, loadSessionStore, type SessionEntry } from '../gateway/sessions/store.js';
 import { cleanMarkdownForWhatsApp } from '../gateway/utils.js';
-import { getSetting } from '../utils/config.js';
+import { getSetting, resolveMaxIterations } from '../utils/config.js';
 import { dexterPath } from '../utils/paths.js';
 import { saveCronStore } from './store.js';
 import { computeNextRunAtMs } from './schedule.js';
@@ -143,7 +143,7 @@ export async function executeCronJob(
       query,
       model,
       modelProvider,
-      maxIterations: 6,
+      maxIterations: resolveMaxIterations(6, 'cronMaxIterations'),
       isolatedSession: true,
       channel: 'whatsapp',
     });
