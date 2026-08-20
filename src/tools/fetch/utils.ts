@@ -73,11 +73,31 @@ const MAX_REDIRECTS = 10;
 // Truncate content handed to the secondary model to bound token usage.
 export const MAX_MARKDOWN_LENGTH = 100_000;
 
+/** sec.gov and its subdomains (www.sec.gov, efts.sec.gov, ...). */
+export function isSecEdgarHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'sec.gov' || host.endsWith('.sec.gov');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Identifying User-Agent so site operators can recognize and rate-limit this
  * client distinctly from browser traffic.
+ *
+ * SEC EDGAR enforces a fair-access policy requiring a declared identity
+ * ("Company Name contact@example.com") and answers the default UA with 403,
+ * so sec.gov requests use SEC_EDGAR_USER_AGENT when the operator has set it.
  */
-export function getWebFetchUserAgent(): string {
+export function getWebFetchUserAgent(url?: string): string {
+  if (url !== undefined && isSecEdgarHost(url)) {
+    const declared = process.env.SEC_EDGAR_USER_AGENT?.trim();
+    if (declared) {
+      return declared;
+    }
+  }
   return 'Dexter-User (dexter-ts; +https://github.com/)';
 }
 
@@ -168,7 +188,7 @@ export async function getWithPermittedRedirects(
       maxContentLength: MAX_HTTP_CONTENT_LENGTH,
       headers: {
         Accept: 'text/markdown, text/html, */*',
-        'User-Agent': getWebFetchUserAgent(),
+        'User-Agent': getWebFetchUserAgent(url),
       },
     });
   } catch (error) {
@@ -203,6 +223,19 @@ export async function getWithPermittedRedirects(
       error.response.headers['x-proxy-error'] === 'blocked-by-allowlist'
     ) {
       throw new EgressBlockedError(new URL(url).hostname);
+    }
+
+    // A 403 from SEC without a declared identity is a configuration problem,
+    // not a dead document — say what fixes it.
+    if (
+      axios.isAxiosError(error) &&
+      error.response?.status === 403 &&
+      isSecEdgarHost(url) &&
+      !process.env.SEC_EDGAR_USER_AGENT?.trim()
+    ) {
+      throw new Error(
+        'SEC EDGAR refused the request (403). Its fair-access policy requires a declared User-Agent: set SEC_EDGAR_USER_AGENT="Company Name contact@example.com" in the environment and retry.',
+      );
     }
 
     throw error;
