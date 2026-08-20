@@ -65,7 +65,7 @@ export function getToolRegistry(model: string): RegisteredTool[] {
       name: 'read_filings',
       tool: createReadFilings(model),
       description: READ_FILINGS_DESCRIPTION,
-      compactDescription: 'SEC filings (10-K, 10-Q, 8-K). Extracts and summarizes specific filing sections.',
+      compactDescription: 'SEC filings (10-K, 10-Q, 8-K; 20-F/6-K as metadata + EDGAR URL). Extracts and summarizes specific filing sections.',
       concurrencySafe: true,
     },
     {
