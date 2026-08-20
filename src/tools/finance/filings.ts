@@ -36,15 +36,50 @@ export async function getFilingItemTypes(): Promise<FilingItemTypes> {
   return itemTypes;
 }
 
+// Forms the Financial Datasets items endpoint can extract sections from.
+export const EXTRACTABLE_FILING_TYPES = ['10-K', '10-Q', '8-K'] as const;
+
+// Forms accepted as metadata filters. Foreign private issuers (most non-US
+// companies on US exchanges) file 20-F (annual) and 6-K (interim/current)
+// instead of 10-K/10-Q/8-K; the API serves their metadata and EDGAR URLs,
+// but cannot extract their sections.
+export const FILING_TYPE_FILTERS = ['10-K', '10-Q', '8-K', '20-F', '6-K'] as const;
+
+export const METADATA_ONLY_NOTE =
+  'Section extraction is only available for 10-K/10-Q/8-K filings. For the other filings listed, read the content from the `url` field (SEC EDGAR) with web_fetch.';
+
+/** Amendments (e.g. 10-K/A) extract with the base form's item tool. */
+export function isExtractableFilingType(filingType: string): boolean {
+  const base = filingType.split('/')[0];
+  return (EXTRACTABLE_FILING_TYPES as readonly string[]).includes(base);
+}
+
+export function partitionFilingsByExtractability(filings: unknown[]): {
+  extractable: unknown[];
+  metadataOnly: unknown[];
+} {
+  const extractable: unknown[] = [];
+  const metadataOnly: unknown[] = [];
+  for (const filing of filings) {
+    const type = (filing as { filing_type?: unknown })?.filing_type;
+    if (typeof type === 'string' && isExtractableFilingType(type)) {
+      extractable.push(filing);
+    } else {
+      metadataOnly.push(filing);
+    }
+  }
+  return { extractable, metadataOnly };
+}
+
 const FilingsInputSchema = z.object({
   ticker: z
     .string()
     .describe("The stock ticker symbol to fetch filings for. For example, 'AAPL' for Apple."),
   filing_type: z
-    .array(z.enum(['10-K', '10-Q', '8-K']))
+    .array(z.enum(FILING_TYPE_FILTERS))
     .optional()
     .describe(
-      "Optional list of filing types to filter by. Use one or more of '10-K', '10-Q', or '8-K'. If omitted, returns most recent filings of ANY type."
+      "Optional list of filing types to filter by: '10-K', '10-Q', '8-K', '20-F', or '6-K'. Foreign private issuers file 20-F/6-K instead of 10-K/10-Q/8-K. If omitted, returns most recent filings of ANY type."
     ),
   limit: z
     .number()
@@ -56,7 +91,7 @@ const FilingsInputSchema = z.object({
 
 export const getFilings = new DynamicStructuredTool({
   name: 'get_filings',
-  description: `Retrieves metadata for SEC filings for a company. Returns accession numbers, filing types, and document URLs. This tool ONLY returns metadata - it does NOT return the actual text content from filings. To retrieve text content, use the specific filing items tools: get_10K_filing_items, get_10Q_filing_items, or get_8K_filing_items.`,
+  description: `Retrieves metadata for SEC filings for a company. Returns accession numbers, filing types, and document URLs. This tool ONLY returns metadata - it does NOT return the actual text content from filings. To retrieve text content, use the specific filing items tools: get_10K_filing_items, get_10Q_filing_items, or get_8K_filing_items. 20-F/6-K content (foreign private issuers) is not extractable — read the returned EDGAR URL instead.`,
   schema: FilingsInputSchema,
   func: async (input) => {
     const params: Record<string, string | number | string[] | undefined> = {

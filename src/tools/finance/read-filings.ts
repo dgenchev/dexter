@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { callLlm } from '../../model/llm.js';
 import { formatToolResult } from '../types.js';
 import { getCurrentDate } from '../../agent/prompts.js';
-import { getFilings, get10KFilingItems, get10QFilingItems, get8KFilingItems, getFilingItemTypes, type FilingItemTypes } from './filings.js';
+import { getFilings, get10KFilingItems, get10QFilingItems, get8KFilingItems, getFilingItemTypes, partitionFilingsByExtractability, FILING_TYPE_FILTERS, METADATA_ONLY_NOTE, type FilingItemTypes } from './filings.js';
 import { withTimeout, SUB_TOOL_TIMEOUT_MS } from './utils.js';
 
 /**
@@ -20,6 +20,7 @@ Intelligent meta-tool for reading SEC filing content. Takes a natural language q
 - Reading 10-K annual reports (business description, risk factors, MD&A, financial statements)
 - Reading 10-Q quarterly reports (quarterly financials, MD&A, market risk disclosures)
 - Reading 8-K current reports (material events, acquisitions, earnings announcements)
+- Locating 20-F / 6-K filings from foreign private issuers (most non-US companies on US exchanges): returns metadata and EDGAR URLs — their sections cannot be extracted here, so read the URL with web_fetch
 - Analyzing or comparing content across multiple SEC filings
 - Extracting specific sections from filings (e.g., "AAPL risk factors", "TSLA business description")
 
@@ -44,7 +45,7 @@ function escapeTemplateVars(str: string): string {
   return str.replace(/\{/g, '{{').replace(/\}/g, '}}');
 }
 
-const FilingTypeSchema = z.enum(['10-K', '10-Q', '8-K']);
+const FilingTypeSchema = z.enum(FILING_TYPE_FILTERS);
 
 const FilingPlanSchema = z.object({
   ticker: z
@@ -92,6 +93,8 @@ Given a user query about SEC filings, return structured plan fields:
    - Risk factors, business description, annual data → 10-K
    - Quarterly results, recent performance → 10-Q
    - Material events, acquisitions, earnings announcements → 8-K
+   - **Foreign private issuers** (most non-US companies on US exchanges, typically ADRs: Alibaba → BABA, Sea → SE, ASML) never file 10-K/10-Q/8-K. Annual report → 20-F; interim results or events → 6-K
+   - If unsure whether the company is a US or foreign filer, include both forms (e.g. ["10-K", "20-F"]) — a form the company does not file simply returns nothing
    - If a query spans multiple time horizons or intents, include multiple filing types
    - If the query is broad, include all relevant filing types instead of leaving this empty
 
@@ -165,7 +168,8 @@ export function createReadFilings(model: string): DynamicStructuredTool {
     description: `Intelligent tool for reading SEC filing content. Takes a natural language query and retrieves full text from 10-K, 10-Q, or 8-K filings. Use for:
 - Reading annual reports (10-K): business description, risk factors, MD&A
 - Reading quarterly reports (10-Q): quarterly financials, MD&A
-- Reading current reports (8-K): material events, acquisitions, earnings`,
+- Reading current reports (8-K): material events, acquisitions, earnings
+- Foreign private issuers (20-F annual, 6-K interim): returns filing metadata with EDGAR URLs — read the URL with web_fetch for content`,
     schema: ReadFilingsInputSchema,
     func: async (input, _runManager, config?: RunnableConfig) => {
       const onProgress = config?.metadata?.onProgress as ((msg: string) => void) | undefined;
@@ -240,13 +244,23 @@ export function createReadFilings(model: string): DynamicStructuredTool {
         }, filingsResult.sourceUrls);
       }
 
-      const filingCount = filingsResult.data.length;
+      // 20-F/6-K (foreign private issuers) have no items endpoint: hand their
+      // metadata and EDGAR URLs back instead of failing the whole query.
+      const { extractable, metadataOnly } = partitionFilingsByExtractability(filingsResult.data);
+      if (extractable.length === 0) {
+        return formatToolResult(
+          { filings: metadataOnly, note: METADATA_ONLY_NOTE },
+          filingsResult.sourceUrls
+        );
+      }
+
+      const filingCount = extractable.length;
       onProgress?.(`Found ${filingCount} filing${filingCount !== 1 ? 's' : ''}, selecting content to read...`);
 
       // Step 2: Select and read filing content with canonical item names
       const { response: step2Response } = await callLlm('Select and call the appropriate filing item tools.', {
         model,
-        systemPrompt: buildStep2Prompt(input.query, filingsResult.data, itemTypes),
+        systemPrompt: buildStep2Prompt(input.query, extractable, itemTypes),
         tools: STEP2_TOOLS,
       });
       const step2Message = step2Response as AIMessage;
@@ -313,6 +327,10 @@ export function createReadFilings(model: string): DynamicStructuredTool {
           args: r.args,
           error: r.error,
         }));
+      }
+
+      if (metadataOnly.length > 0) {
+        combinedData._metadata_only = { filings: metadataOnly, note: METADATA_ONLY_NOTE };
       }
 
       return formatToolResult(combinedData, allUrls);
