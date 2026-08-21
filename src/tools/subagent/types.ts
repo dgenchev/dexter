@@ -119,10 +119,12 @@ export const SUBAGENT_TYPES: Record<string, SubagentTypeConfig> = {
       'read_filings tools are closed for that name — use web_fetch of the issuer instead.\n\n' +
       'If you cannot source a category, write UNSOURCED in its Source cell and cap that score at 5. Never ' +
       'fill a score from what a company of this kind is typically like.\n\n' +
-      'Arithmetic: Total is the sum of the ten scores, out of 100. Bucket: high moat >75, moderate moat ' +
-      '70-75, weak moat 65-70, no moat <65 — except when more than 3 categories are UNSOURCED, in which ' +
-      'case Bucket is the words "insufficient evidence". Unsourced counts the UNSOURCED categories. Scored ' +
-      'is the story\'s frontmatter date.\n\n' +
+      'Copy the ten category names verbatim from the checklist — "Value chain control", never a shortened ' +
+      '"Value chain".\n\n' +
+      'Arithmetic: Total is the sum of the ten scores, out of 100. Unsourced counts the UNSOURCED ' +
+      'categories. Scored is the story\'s frontmatter date. There is no bucket or moat label — the total ' +
+      'travels with its evidence gap ("66/100, 2 of 10 UNSOURCED") and the reader draws the conclusion; ' +
+      'a label would claim the business when the score measures the file.\n\n' +
       'Return ONLY this block, no prose before or after it:\n\n' +
       '<!-- gd:jenga-block v1 -->\n' +
       '| Category | Score /10 | Evidence | Source |\n' +
@@ -130,7 +132,6 @@ export const SUBAGENT_TYPES: Record<string, SubagentTypeConfig> = {
       '| New entry difficulty | 7 | one line | 10-K Item 1, https://... |\n' +
       '| ...one row per category, all ten, in checklist order... |\n' +
       '| Total | 71/100 | | |\n' +
-      '| Bucket | moderate moat | | |\n' +
       '| Unsourced | 1 of 10 | | |\n' +
       '| Scored | 2026-08-18 | | |\n' +
       '<!-- /gd:jenga-block -->\n\n' +

@@ -92,7 +92,11 @@ describe('scorer subagent type', () => {
     expect(prompt).toContain('| Category | Score /10 | Evidence | Source |');
     expect(prompt).toContain('brain/jenga-checklist.md');
     expect(prompt).toContain('UNSOURCED');
-    expect(prompt).toContain('insufficient evidence');
+    // The bucket/moat label was retired 2026-08-21: the total travels with its
+    // evidence gap and the reader draws the conclusion.
+    expect(prompt).not.toContain('| Bucket |');
+    expect(prompt.toLowerCase()).not.toContain('moderate moat');
+    expect(prompt).toContain('verbatim');
     expect(prompt.toLowerCase()).toContain('venue: non-us');
   });
 
